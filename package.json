@@ -11,7 +11,7 @@
     "party:deploy": "npx partykit deploy"
   },
   "dependencies": {
-    "next": "16.1.6",
+    "next": "16.3.3",
     "partysocket": "^1.1.16",
     "react": "19.2.3",
     "react-dom": "19.2.3"
