@@ -173,6 +173,7 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
           <option value="first_to_kills">First to N kills</option>
           <option value="last_standing">Last standing</option>
           <option value="eliminate_all">Eliminate all</option>
+          <option value="no_move_loses">No move loses (Trail)</option>
         </select>
       </label>
       {draft.winCondition === "first_to_kills" && (

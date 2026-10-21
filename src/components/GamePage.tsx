@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import HexBoard from "./HexBoard";
 import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
-import { DEFAULT_CONFIG } from "@/lib/engine";
+import { DEFAULT_CONFIG, TRAIL_CONFIG } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
 import type { AIDifficulty } from "@/lib/engine/ai";
 import type { Move, GameState, GameConfig, Winner } from "@/lib/engine";
@@ -552,6 +552,7 @@ export default function GamePage() {
             onHexClick={handleHexClick}
             config={config}
             animOverride={animOverride}
+            deadCells={state.deadCells ?? []}
           />
         </div>
 
@@ -622,7 +623,9 @@ export default function GamePage() {
               </div>
               <div className="text-4xl font-bold text-red-500">{redCount}</div>
               <div className="text-xs text-gray-500">
-                {redKills}/{killTarget} kills
+                {config.trailMode
+                  ? `${state.deadCells?.length ?? 0} hexes dead`
+                  : `${redKills}/${killTarget} kills`}
               </div>
               {config.deployEnabled && (
                 <div className="text-xs text-cyan-400 mt-0.5">
@@ -639,7 +642,9 @@ export default function GamePage() {
                 {blueCount}
               </div>
               <div className="text-xs text-gray-500">
-                {blueKills}/{killTarget} kills
+                {config.trailMode
+                  ? "no move = loss"
+                  : `${blueKills}/${killTarget} kills`}
               </div>
               {config.deployEnabled && (
                 <div className="text-xs text-cyan-400 mt-0.5">
@@ -690,6 +695,16 @@ export default function GamePage() {
           >
             Play Online
           </a>
+          <button
+            onClick={() =>
+              handleConfigChange(config.trailMode ? DEFAULT_CONFIG : TRAIL_CONFIG)
+            }
+            className="w-full py-2.5 text-base cursor-pointer border-2 border-amber-700 rounded-md bg-[#1a1a2e] text-amber-400 hover:bg-amber-900/30 hover:border-amber-500 transition-all"
+          >
+            {config.trailMode
+              ? "Back to Standard HexRing"
+              : "Play Trail — asymmetric pits"}
+          </button>
 
           {/* Settings */}
           <SettingsPanel config={config} onApply={handleConfigChange} />
@@ -732,7 +747,9 @@ export default function GamePage() {
               ? `First to ${killTarget} kills wins!`
               : config.winCondition === "last_standing"
                 ? "Reduce opponent to 1 piece to win!"
-                : "Eliminate all enemy pieces to win!"}
+                : config.winCondition === "no_move_loses"
+                  ? "Trail: move a piece up to 2 hexes through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose."
+                  : "Eliminate all enemy pieces to win!"}
           </div>
         </div>
       </div>

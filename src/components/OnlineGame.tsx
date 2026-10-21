@@ -269,6 +269,7 @@ export default function OnlineGame({ roomId, playerName }: OnlineGameProps) {
               currentPlayer={state.currentPlayer}
               isInteractive={isMyTurn && phase === "playing"}
               onHexClick={handleHexClick}
+              deadCells={state.deadCells ?? []}
             />
           ) : (
             <div className="w-[580px] h-[530px] flex items-center justify-center text-gray-500">

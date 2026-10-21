@@ -25,3 +25,4 @@ export type {
   GameConfig,
 } from "./types";
 export { DEFAULT_CONFIG } from "./types";
+export { TRAIL_CONFIG, TRAIL_PITS, TRAIL_STARTS, TRAIL_RADIUS } from "./presets";
