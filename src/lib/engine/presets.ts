@@ -1,7 +1,7 @@
 // Variant presets — full GameConfigs that differ from standard HexRing
 // by more than a settings tweak.
 
-import { hexDisk, hexKey } from "./hex";
+import { hexDisk, hexKey, hexRing } from "./hex";
 import type { GameConfig, PieceKind, PlayerId, TileType } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
@@ -34,11 +34,18 @@ import { DEFAULT_CONFIG } from "./types";
 // and intersperses the starts: every 3rd hex of the outer ring,
 // colours alternating, so an enemy is 3 hexes away on both sides and
 // moves hurt the opponent from ply 0 (sim: 66% of moves reduce enemy
-// mobility, engaging rate 0.78). The starts are also not rotationally
-// paired (a start's 180-degree rotation is never a start), so the
-// mirror has no opening to copy from, on top of the pits. Endings are
-// still exhaustion-shaped — that is Trail's nature without captures —
-// but the trapping is now mostly done TO you, not BY you.
+// mobility, engaging rate 0.78). Endings are still exhaustion-shaped —
+// that is Trail's nature without captures — but the trapping is now
+// mostly done TO you, not BY you.
+//
+// CORRECTION (2026-10-22): an earlier version of this comment claimed
+// the starts are not rotationally paired. They ARE: rotating either
+// seat's starts 180 degrees gives the other seat's starts exactly, on
+// this board and on Mini. The anti-mirror protection was the pits
+// alone. The structural answer is now the Fair Start rule (below):
+// the second seat's first move may not be the mirror of the first
+// seat's, which sims show reduces the copycat to ordinary play on
+// every terrain (addendum 8, TRAIL_PROBE.md).
 // Evidence: ~/workspace/hexring/search/trail_mix.py.
 // ---------------------------------------------------------------------------
 
@@ -143,6 +150,8 @@ export const TRAIL_CONFIG: GameConfig = {
   winCondition: "no_move_loses",
   trailMode: true,
   trailMoveRange: 2,
+  fairStart: true,
+  trailBoardKind: "trail",
   // Everything that is not a plain move is off in Trail
   pushEnabled: false,
   chainPush: false,
@@ -216,6 +225,7 @@ export const MINI_CONFIG: GameConfig = {
   trailMoveRange: 1,
   trailPieces: "uniform",
   pieceKinds: undefined,
+  trailBoardKind: "mini",
   customTiles: buildMiniTiles(),
 };
 
@@ -282,31 +292,45 @@ export function buildTrailBoard(spec: TrailBoardSpec): GameConfig {
   };
 }
 
-// PLACEHOLDER boards — not simulation-tuned; replace with sim boards.
-// Radius 5 with Trail's six asymmetric pits; 3 pieces per seat spaced
-// evenly round the outer ring, colours cycling, each seat's pieces 120
-// degrees apart, Red starting on (-5,5) as in 2-player Trail. On the
-// 4-seat board every start's 180-degree rotation is also a start (12
-// starts on a 30-hex ring); only the pits break that symmetry.
-export const TRAIL_FFA_PLACEHOLDER_3: TrailBoardSpec = {
-  radius: TRAIL_RADIUS,
-  pits: TRAIL_PITS,
+// SIM boards — these replace Sam's placeholder boards (radius 5,
+// Trail pits, 3 per seat; his greedy self-play had Blue winning 44%
+// of 3-player games). Data is the exact cells from the multiplayer
+// probe (~/workspace/hexring/search/trail_ffa.py, addendum 6):
+// radius 6, 4 pieces per seat, move range 1, starts interspersed
+// round the rim cycling seats. Greedy win shares there: 3P
+// 0.35/0.30/0.35; 4P pitted 0.425/0.20/0.175/0.20 (stronger max^n
+// play flatter: 0.25/0.25/0.167/0.333); the no-pit 4P control was
+// the flattest greedy board of the sweep (0.325/0.225/0.25/0.20).
+// Seat fairness in FFA is a match-level property (rotate seats
+// between games), not a single-layout promise — see addendum 6.
+export const TRAIL_FFA_SIM_3: TrailBoardSpec = {
+  radius: 6,
+  moveRange: 1,
+  pits: [[2, 0], [-3, -3], [0, -5], [5, -5], [-1, 3], [3, -5], [5, 0], [3, 2]],
   starts: [
-    [[-5, 5], [5, 0], [0, -5]],
-    [[-2, 5], [5, -3], [-3, -2]],
-    [[2, 3], [3, -5], [-5, 2]],
+    [[-5, -1], [4, -6], [5, 1], [-4, 6]],
+    [[-2, -4], [6, -5], [2, 4], [-6, 5]],
+    [[1, -6], [6, -2], [-1, 6], [-6, 2]],
   ],
 };
 
-export const TRAIL_FFA_PLACEHOLDER_4: TrailBoardSpec = {
-  radius: TRAIL_RADIUS,
-  pits: TRAIL_PITS,
+export const TRAIL_FFA_SIM_4: TrailBoardSpec = {
+  radius: 6,
+  moveRange: 1,
+  pits: [[0, -6], [3, -3], [-5, 3], [-3, 1], [-2, -2], [1, -3], [-2, -4], [4, -2]],
   starts: [
-    [[-5, 5], [5, 0], [0, -5]],
-    [[-2, 5], [5, -3], [-3, -2]],
-    [[0, 5], [5, -5], [-5, 0]],
-    [[3, 2], [2, -5], [-5, 3]],
+    [[-5, -1], [3, -6], [6, -1], [-1, 6]],
+    [[-3, -3], [5, -6], [5, 1], [-3, 6]],
+    [[-1, -5], [6, -5], [3, 3], [-5, 6]],
+    [[1, -6], [6, -3], [1, 5], [-6, 5]],
   ],
+};
+
+export const TRAIL_FFA_SIM_4_OPEN: TrailBoardSpec = {
+  radius: 6,
+  moveRange: 1,
+  pits: [],
+  starts: TRAIL_FFA_SIM_4.starts,
 };
 
 export interface TrailFfaPreset {
@@ -319,14 +343,19 @@ export interface TrailFfaPreset {
 // preset for a given player count is that count's default.
 export const TRAIL_FFA_PRESETS: TrailFfaPreset[] = [
   {
-    id: "ffa3-placeholder",
-    label: "3 players (placeholder board)",
-    config: buildTrailBoard(TRAIL_FFA_PLACEHOLDER_3),
+    id: "ffa3-sim",
+    label: "3 players · radius 6 · step 1 (sim board)",
+    config: buildTrailBoard(TRAIL_FFA_SIM_3),
   },
   {
-    id: "ffa4-placeholder",
-    label: "4 players (placeholder board)",
-    config: buildTrailBoard(TRAIL_FFA_PLACEHOLDER_4),
+    id: "ffa4-sim",
+    label: "4 players · radius 6 · step 1 (sim board)",
+    config: buildTrailBoard(TRAIL_FFA_SIM_4),
+  },
+  {
+    id: "ffa4-open",
+    label: "4 players · radius 6 · no pits (sim board)",
+    config: buildTrailBoard(TRAIL_FFA_SIM_4_OPEN),
   },
 ];
 
@@ -339,4 +368,126 @@ export function findTrailFfaPreset(config: GameConfig): TrailFfaPreset | undefin
       p.config.playerCount === config.playerCount &&
       JSON.stringify(p.config.customTiles) === tiles
   );
+}
+
+// ---------------------------------------------------------------------------
+// GENERATED 2-PLAYER BOARDS — the grid-size parameter (founder,
+// 2026-10-22). Pick a radius (3-6) and get a fresh board: starts
+// interspersed round the outer ring alternating seats (the v2
+// recipe), pieces per side equal to the radius, move range 1 at
+// radius 3-4 and 2 at 5-6 (the simmed combinations), and pits
+// RANDOM per board under the founder's pit ruling — scattered by
+// the same constrained chooser as the sims (spread at least 2
+// apart, never on or opposite a start, board stays connected).
+// Random terrain plus Fair Start is what makes a generated board
+// fair: no fixed geography to prefer a seat on, and the copycat
+// is banned at move one regardless of terrain.
+// ---------------------------------------------------------------------------
+
+const GEN_PIT_COUNT: Record<number, number> = { 3: 3, 4: 4, 5: 6, 6: 8 };
+const GEN_DIRS: [number, number][] = [
+  [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1],
+];
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hdist(q: number, r: number): number {
+  return (Math.abs(q) + Math.abs(q + r) + Math.abs(r)) / 2;
+}
+
+function ringByAngle(radius: number): [number, number][] {
+  const cells = hexRing(radius).map((h) => [h.q, h.r] as [number, number]);
+  const ang = ([q, r]: [number, number]) =>
+    Math.atan2(1.5 * r, Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
+  return cells.sort((a, b) => ang(a) - ang(b));
+}
+
+function generatedPits(
+  radius: number,
+  starts: [number, number][][],
+  seed: number
+): [number, number][] {
+  const rand = mulberry32(seed);
+  const flat = new Set(
+    starts.flat().map(([q, r]) => hexKey(q, r))
+  );
+  const disk: [number, number][] = [];
+  for (let q = -radius; q <= radius; q++) {
+    for (let r = -radius; r <= radius; r++) {
+      if (hdist(q, r) <= radius) disk.push([q, r]);
+    }
+  }
+  const cands = disk
+    .filter(([q, r]) => {
+      const k = hexKey(q, r);
+      return (
+        hdist(q, r) >= 1 &&
+        !flat.has(k) &&
+        !flat.has(hexKey(-q, -r))
+      );
+    })
+    .sort(() => rand() - 0.5);
+  const want = GEN_PIT_COUNT[radius] ?? 3;
+  const chosen: [number, number][] = [];
+  const connected = (blocked: Set<string>): boolean => {
+    const rest = disk.filter(([q, r]) => !blocked.has(hexKey(q, r)));
+    if (!rest.length) return false;
+    const seen = new Set<string>([hexKey(rest[0][0], rest[0][1])]);
+    const stack = [rest[0]];
+    while (stack.length) {
+      const [cq, cr] = stack.pop()!;
+      for (const [dq, dr] of GEN_DIRS) {
+        const n: [number, number] = [cq + dq, cr + dr];
+        const k = hexKey(n[0], n[1]);
+        if (
+          hdist(n[0], n[1]) <= radius &&
+          !blocked.has(k) &&
+          !seen.has(k)
+        ) {
+          seen.add(k);
+          stack.push(n);
+        }
+      }
+    }
+    return seen.size === rest.length;
+  };
+  for (const p of cands) {
+    if (chosen.length >= want) break;
+    if (chosen.some((c) => hdist(p[0] - c[0], p[1] - c[1]) < 2)) continue;
+    const blocked = new Set(
+      [...chosen, p].map(([q, r]) => hexKey(q, r))
+    );
+    if (!connected(blocked)) continue;
+    chosen.push(p);
+  }
+  return chosen;
+}
+
+export function generatedTrailConfig(radius: number, seed: number): GameConfig {
+  const ring = ringByAngle(radius);
+  const per = radius; // pieces per side scale with the board
+  const total = 2 * per;
+  const step = Math.max(1, Math.floor(ring.length / total));
+  const picks = Array.from({ length: total }, (_, i) => ring[(i * step) % ring.length]);
+  const starts: [number, number][][] = [
+    picks.filter((_, i) => i % 2 === 0),
+    picks.filter((_, i) => i % 2 === 1),
+  ];
+  const pits = generatedPits(radius, starts, seed);
+  const config = buildTrailBoard({
+    radius,
+    pits,
+    starts,
+    moveRange: radius <= 4 ? 1 : 2,
+  });
+  return { ...config, trailBoardKind: `gen-${radius}` };
 }
