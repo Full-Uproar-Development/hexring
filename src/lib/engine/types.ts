@@ -5,11 +5,14 @@ export interface Hex {
   r: number;
 }
 
+export type PieceKind = "soldier" | "scout" | "hopper";
+
 export interface Piece {
   id: number;
   player: 0 | 1;
   q: number;
   r: number;
+  kind?: PieceKind; // Trail piece types; absent = soldier
 }
 
 export type MoveType = "MOVE" | "PUSH" | "JUMP" | "CHAIN_JUMP" | "DEPLOY";
@@ -106,7 +109,15 @@ export interface GameConfig {
   // piece leaves dies permanently; no captures; a player who starts
   // their turn with no legal move loses (winCondition: no_move_loses)
   trailMode: boolean;
-  trailMoveRange: number; // hexes a piece may travel per turn in Trail mode
+  trailMoveRange: number; // hexes a soldier may travel per turn in Trail mode
+
+  // Trail piece types (setting): uniform = all soldiers;
+  // scouts = slots {0,2} are scouts (range 3); hoppers = slots {0,2}
+  // are hoppers (soldier move, or a straight 2-hex hop over anything
+  // to a live empty hex); hopper1 = only slot {2} is a hopper.
+  // pieceKinds maps a start hex "q,r" to its kind (both players).
+  trailPieces: "uniform" | "scouts" | "hoppers" | "hopper1";
+  pieceKinds?: Record<string, PieceKind>;
 
   // Deploy / reinforcement
   deployEnabled: boolean;
@@ -142,6 +153,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   turnLimit: 0,
   trailMode: false,
   trailMoveRange: 2,
+  trailPieces: "uniform",
   deployEnabled: false,
   deployZone: 3,
   reservePieces: 0,

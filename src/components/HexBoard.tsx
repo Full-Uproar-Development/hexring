@@ -361,6 +361,21 @@ export default function HexBoard({
               stroke="#111"
               strokeWidth="1.5"
             />
+            {p.kind && p.kind !== "soldier" && (
+              <text
+                x={0}
+                y={1}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize="10"
+                fontWeight="bold"
+                fill="#fff"
+                stroke="rgba(0,0,0,0.6)"
+                strokeWidth="0.4"
+              >
+                {p.kind === "scout" ? "S" : "H"}
+              </text>
+            )}
           </g>
         );
       })}

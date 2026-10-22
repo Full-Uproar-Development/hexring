@@ -24,9 +24,17 @@ export class Game {
   private createInitialState(): GameState {
     const pieces: Record<number, Piece> = {};
     let id = 0;
+    const kinds = this.board.config.pieceKinds ?? {};
     for (let player = 0; player < 2; player++) {
       for (const pos of this.board.startPositions[player]) {
-        pieces[id] = { id, player: player as 0 | 1, q: pos.q, r: pos.r };
+        const kind = kinds[hexKey(pos.q, pos.r)];
+        pieces[id] = {
+          id,
+          player: player as 0 | 1,
+          q: pos.q,
+          r: pos.r,
+          ...(kind ? { kind } : {}),
+        };
         id++;
       }
     }
@@ -165,9 +173,12 @@ export class Game {
 
     // TRAIL — the only move: travel up to trailMoveRange hexes through
     // empty, live, non-pit hexes (BFS; pieces, pits and dead hexes all
-    // block the path, not just the destination).
+    // block the path, not just the destination). Piece kinds:
+    // scout = range 3; hopper = soldier move plus a straight 2-hex
+    // hop over anything to a live empty hex.
     if (cfg.trailMode) {
-      const range = cfg.trailMoveRange;
+      const kind = piece.kind ?? "soldier";
+      const range = kind === "scout" ? 3 : cfg.trailMoveRange;
       const seen = new Set<string>([hexKey(piece.q, piece.r)]);
       let frontier: [number, number][] = [[piece.q, piece.r]];
       for (let step = 0; step < range; step++) {
@@ -193,6 +204,25 @@ export class Game {
           }
         }
         frontier = next;
+      }
+      if (kind === "hopper") {
+        for (const [dq, dr] of DIRS) {
+          const nq = piece.q + 2 * dq;
+          const nr = piece.r + 2 * dr;
+          const key = hexKey(nq, nr);
+          if (seen.has(key)) continue; // already reachable on foot
+          if (!this.board.onBoard(nq, nr)) continue;
+          if (this.board.isKillbox(nq, nr)) continue;
+          if (this.isDead(state, nq, nr)) continue;
+          if (this.occupied(state, nq, nr)) continue;
+          // The hex in between may be anything: piece, pit, dead hex.
+          moves.push({
+            type: "MOVE",
+            destQ: nq,
+            destR: nr,
+            pieceId: piece.id,
+          });
+        }
       }
       return moves;
     }
