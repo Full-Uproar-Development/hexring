@@ -4,7 +4,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import HexBoard from "./HexBoard";
 import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
-import { DEFAULT_CONFIG, TRAIL_CONFIG } from "@/lib/engine";
+import { DEFAULT_CONFIG, TRAIL_CONFIG, withTrailPieces } from "@/lib/engine";
+import type { TrailPiecesVariant } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
 import type { AIDifficulty } from "@/lib/engine/ai";
 import type { Move, GameState, GameConfig, Winner } from "@/lib/engine";
@@ -615,6 +616,27 @@ export default function GamePage() {
             </label>
           )}
 
+          {/* Trail piece types */}
+          {config.trailMode && (
+            <label className="text-sm text-gray-400">
+              Pieces:{" "}
+              <select
+                value={config.trailPieces}
+                onChange={(e) =>
+                  handleConfigChange(
+                    withTrailPieces(config, e.target.value as TrailPiecesVariant)
+                  )
+                }
+                className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
+              >
+                <option value="uniform">Uniform (all soldiers)</option>
+                <option value="scouts">Scouts ×2 (range 3)</option>
+                <option value="hoppers">Hoppers ×2</option>
+                <option value="hopper1">Hopper ×1</option>
+              </select>
+            </label>
+          )}
+
           {/* Scoreboard */}
           <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-4 flex justify-around">
             <div className="text-center">
@@ -748,7 +770,12 @@ export default function GamePage() {
               : config.winCondition === "last_standing"
                 ? "Reduce opponent to 1 piece to win!"
                 : config.winCondition === "no_move_loses"
-                  ? "Trail: move a piece up to 2 hexes through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose."
+                  ? "Trail: move a piece up to 2 hexes through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose." +
+                    (config.trailPieces === "scouts"
+                      ? " Scouts (S) move up to 3 hexes."
+                      : config.trailPieces === "hoppers" || config.trailPieces === "hopper1"
+                        ? " Hoppers (H) can also hop exactly 2 hexes in a straight line over anything (piece, pit, or dead hex) to a live empty hex."
+                        : "")
                   : "Eliminate all enemy pieces to win!"}
           </div>
         </div>

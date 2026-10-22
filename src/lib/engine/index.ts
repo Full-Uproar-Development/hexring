@@ -14,6 +14,7 @@ export {
 export type {
   Hex,
   Piece,
+  PieceKind,
   Move,
   MoveType,
   ChainHop,
@@ -25,4 +26,12 @@ export type {
   GameConfig,
 } from "./types";
 export { DEFAULT_CONFIG } from "./types";
-export { TRAIL_CONFIG, TRAIL_PITS, TRAIL_STARTS, TRAIL_RADIUS } from "./presets";
+export {
+  TRAIL_CONFIG,
+  TRAIL_PITS,
+  TRAIL_STARTS,
+  TRAIL_RADIUS,
+  trailPieceKinds,
+  withTrailPieces,
+} from "./presets";
+export type { TrailPiecesVariant } from "./presets";

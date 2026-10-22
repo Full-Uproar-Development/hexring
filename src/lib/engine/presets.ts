@@ -2,7 +2,7 @@
 // by more than a settings tweak.
 
 import { hexDisk, hexKey } from "./hex";
-import type { GameConfig, TileType } from "./types";
+import type { GameConfig, PieceKind, TileType } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -89,6 +89,50 @@ function buildTrailTiles(): Record<string, TileType> {
     else tiles[key] = "normal";
   }
   return tiles;
+}
+
+// Piece-type variants (simmed 2026-10-21, trail_types.py). Specials
+// sit on the same start slots the sim used — {0,2} of each start
+// list, or slot {2} alone for the solo hopper:
+//   slots {0,2}: P0 (-4,-1) & (5,-2);  P1 (-1,-4) & (4,1)
+//   slot  {2}:   P0 (5,-2);            P1 (4,1)
+// Sim read: scouts were inert (range never once rescued a trapped
+// piece in 66 games); hoppers had a real mechanism (~3.5 escapes
+// per game at two, ~1.8 at one; two hoppers made 55% of all moves,
+// one hopper a balanced ~32%).
+export type TrailPiecesVariant = GameConfig["trailPieces"];
+
+const SPECIAL_SLOTS: Record<string, number[]> = {
+  scouts: [0, 2],
+  hoppers: [0, 2],
+  hopper1: [2],
+};
+
+export function trailPieceKinds(
+  variant: TrailPiecesVariant
+): Record<string, PieceKind> {
+  const kinds: Record<string, PieceKind> = {};
+  const slots = SPECIAL_SLOTS[variant];
+  if (!slots) return kinds;
+  const kind: PieceKind = variant === "scouts" ? "scout" : "hopper";
+  for (const starts of TRAIL_STARTS) {
+    for (const i of slots) {
+      const [q, r] = starts[i];
+      kinds[hexKey(q, r)] = kind;
+    }
+  }
+  return kinds;
+}
+
+export function withTrailPieces(
+  config: GameConfig,
+  variant: TrailPiecesVariant
+): GameConfig {
+  return {
+    ...config,
+    trailPieces: variant,
+    pieceKinds: trailPieceKinds(variant),
+  };
 }
 
 export const TRAIL_CONFIG: GameConfig = {
