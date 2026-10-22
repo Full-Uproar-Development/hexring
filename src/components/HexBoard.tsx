@@ -30,6 +30,7 @@ interface HexBoardProps {
   onHexClick: (q: number, r: number) => void;
   config?: GameConfig;
   animOverride?: { pieceId: number; q: number; r: number } | null;
+  deadCells?: string[]; // Trail mode: hexes ("q,r") that died during the game
 }
 
 export default function HexBoard({
@@ -39,6 +40,7 @@ export default function HexBoard({
   onHexClick,
   config = DEFAULT_CONFIG,
   animOverride = null,
+  deadCells = [],
 }: HexBoardProps) {
   // Compute effective radius for viewport sizing
   const effectiveRadius = useMemo(() => {
@@ -150,6 +152,32 @@ export default function HexBoard({
             stroke={stroke}
             strokeWidth="1.2"
           />
+        );
+      })}
+
+      {/* Dead hexes (Trail) — scorched and crossed out */}
+      {deadCells.map((key) => {
+        const { q, r } = parseKey(key);
+        const [cx, cy] = hexToPixel(q, r, HEX_SIZE);
+        return (
+          <g key={`dead-${key}`}>
+            <polygon
+              points={hexPoints(cx, cy, HEX_SIZE - 1)}
+              fill="#17101f"
+              stroke="#6b5636"
+              strokeWidth="1.2"
+            />
+            <text
+              x={cx}
+              y={cy + 1}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize="13"
+              fill="#8a6d3b"
+            >
+              &#x2715;
+            </text>
+          </g>
         );
       })}
 

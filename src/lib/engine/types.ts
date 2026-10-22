@@ -60,9 +60,14 @@ export interface GameState {
   turnCount: number;
   reservePieces: [number, number]; // undeployed pieces per player
   totalDeployed: [number, number]; // how many pieces each player has deployed from reserve
+  deadCells: string[]; // Trail mode: hexes ("q,r") that died when a piece left them; permanently unplayable
 }
 
-export type WinCondition = "first_to_kills" | "last_standing" | "eliminate_all";
+export type WinCondition =
+  | "first_to_kills"
+  | "last_standing"
+  | "eliminate_all"
+  | "no_move_loses";
 export type StartLayout = "clustered" | "spread";
 export type TileType = "normal" | "killbox" | "fortress" | "deploy0" | "deploy1" | "start0" | "start1";
 
@@ -97,6 +102,12 @@ export interface GameConfig {
   threefoldRepetition: boolean;
   turnLimit: number; // 0 = no limit
 
+  // Trail variant: move up to 2 hexes through empty hexes; the hex a
+  // piece leaves dies permanently; no captures; a player who starts
+  // their turn with no legal move loses (winCondition: no_move_loses)
+  trailMode: boolean;
+  trailMoveRange: number; // hexes a piece may travel per turn in Trail mode
+
   // Deploy / reinforcement
   deployEnabled: boolean;
   deployZone: number; // which ring new pieces deploy onto (0 = center)
@@ -129,6 +140,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   pushAfterJump: false,
   threefoldRepetition: true,
   turnLimit: 0,
+  trailMode: false,
+  trailMoveRange: 2,
   deployEnabled: false,
   deployZone: 3,
   reservePieces: 0,

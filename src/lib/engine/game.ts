@@ -40,6 +40,7 @@ export class Game {
       turnCount: 0,
       reservePieces: [reserve, reserve],
       totalDeployed: [0, 0],
+      deadCells: [],
     };
     // Record initial position
     this.recordPosition(state);
@@ -77,7 +78,13 @@ export class Game {
     const pcs = Object.values(state.pieces)
       .map((p) => `${p.player},${p.q},${p.r}`)
       .sort();
-    return pcs.join("|") + ":" + state.currentPlayer;
+    const dead = (state.deadCells ?? []).slice().sort().join(",");
+    return pcs.join("|") + ":" + state.currentPlayer + ":" + dead;
+  }
+
+  // Trail mode: a cell is unplayable if it died earlier this game
+  private isDead(state: GameState, q: number, r: number): boolean {
+    return (state.deadCells ?? []).includes(hexKey(q, r));
   }
 
   private recordPosition(state: GameState): number {
@@ -89,6 +96,9 @@ export class Game {
   // --- Win condition ---
 
   checkWinner(state: GameState): Winner {
+    // Trail (no_move_loses) is decided in executeTurn / by move
+    // availability, not by piece counts — pieces are never captured.
+    if (this.board.config.winCondition === "no_move_loses") return null;
     const r = this.pieceCount(state, 0);
     const b = this.pieceCount(state, 1);
     const pp = this.board.config.piecesPerPlayer;
@@ -152,6 +162,40 @@ export class Game {
     const moves: Move[] = [];
     const pid = piece.player;
     const cfg = this.board.config;
+
+    // TRAIL — the only move: travel up to trailMoveRange hexes through
+    // empty, live, non-pit hexes (BFS; pieces, pits and dead hexes all
+    // block the path, not just the destination).
+    if (cfg.trailMode) {
+      const range = cfg.trailMoveRange;
+      const seen = new Set<string>([hexKey(piece.q, piece.r)]);
+      let frontier: [number, number][] = [[piece.q, piece.r]];
+      for (let step = 0; step < range; step++) {
+        const next: [number, number][] = [];
+        for (const [cq, cr] of frontier) {
+          for (const [dq, dr] of DIRS) {
+            const nq = cq + dq;
+            const nr = cr + dr;
+            const key = hexKey(nq, nr);
+            if (seen.has(key)) continue;
+            if (!this.board.onBoard(nq, nr)) continue;
+            if (this.board.isKillbox(nq, nr)) continue;
+            if (this.isDead(state, nq, nr)) continue;
+            if (this.occupied(state, nq, nr)) continue;
+            seen.add(key);
+            next.push([nq, nr]);
+            moves.push({
+              type: "MOVE",
+              destQ: nq,
+              destR: nr,
+              pieceId: piece.id,
+            });
+          }
+        }
+        frontier = next;
+      }
+      return moves;
+    }
 
     for (const [dq, dr] of DIRS) {
       const nq = piece.q + dq;
@@ -492,6 +536,12 @@ export class Game {
     if (!piece) return;
 
     if (move.type === "MOVE") {
+      // Trail: the hex the piece leaves dies permanently
+      if (this.board.config.trailMode) {
+        const key = hexKey(piece.q, piece.r);
+        state.deadCells = state.deadCells ?? [];
+        if (!state.deadCells.includes(key)) state.deadCells.push(key);
+      }
       piece.q = move.destQ;
       piece.r = move.destR;
       if (this.board.isKillbox(piece.q, piece.r)) {
@@ -608,6 +658,18 @@ export class Game {
     // Switch player
     this.state.currentPlayer = (1 - this.state.currentPlayer) as 0 | 1;
 
+    // Trail: a player who starts their turn with no legal move loses
+    if (this.board.config.winCondition === "no_move_loses") {
+      const toMove = this.state.currentPlayer;
+      if (!this.allMoves(this.state, toMove).length) {
+        const w = (1 - toMove) as 0 | 1;
+        this.state.winner = w;
+        this.state.winReason = `${toMove === 0 ? "Red" : "Blue"} has no legal moves — ${w === 0 ? "Red" : "Blue"} wins!`;
+        return { winner: w, winReason: this.state.winReason };
+      }
+      return { winner: null };
+    }
+
     // Check turn limit
     const tl = this.board.config.turnLimit;
     if (tl > 0 && this.state.turnCount >= tl) {
@@ -666,6 +728,7 @@ export class Game {
       turnCount: state.turnCount,
       reservePieces: [...state.reservePieces] as [number, number],
       totalDeployed: [...state.totalDeployed] as [number, number],
+      deadCells: [...(state.deadCells ?? [])],
     };
   }
 }

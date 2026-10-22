@@ -16,6 +16,18 @@ const DEPTH_BY_LEVEL: Record<AIDifficulty, number> = {
   6: 5,
 };
 
+// Trail mode: checkWinner is null by design (nobody is ever captured),
+// so wins are detected by move availability instead — after `mover`
+// moves, the other player loses if they have no legal moves left.
+function trailWinnerAfterMove(
+  game: Game,
+  state: GameState,
+  mover: 0 | 1
+): 0 | 1 | null {
+  const next = (1 - mover) as 0 | 1;
+  return game.allMoves(state, next).length ? null : mover;
+}
+
 export function aiChooseMove(
   game: Game,
   state: GameState,
@@ -38,7 +50,9 @@ export function aiChooseMove(
     for (const m of moves) {
       const snap = game.snapshot(state);
       game.applyMove(state, m);
-      const w = game.checkWinner(state);
+      const w = game.board.config.trailMode
+        ? trailWinnerAfterMove(game, state, aiPlayer)
+        : game.checkWinner(state);
       restoreState(state, snap);
       if (w === aiPlayer) winningMoves.push(m);
     }
@@ -60,7 +74,10 @@ export function aiChooseMove(
       for (const om of oppMoves) {
         const snap2 = game.snapshot(state);
         game.applyMove(state, om);
-        if (game.checkWinner(state) === opp) oppCanWin = true;
+        const ow = game.board.config.trailMode
+          ? trailWinnerAfterMove(game, state, opp)
+          : game.checkWinner(state);
+        if (ow === opp) oppCanWin = true;
         restoreState(state, snap2);
         if (oppCanWin) break;
       }
@@ -188,7 +205,13 @@ function minimax(
 
   const player = maximizing ? aiPlayer : ((1 - aiPlayer) as 0 | 1);
   const moves = game.allMoves(state, player);
-  if (!moves.length) return evaluate(game, state, aiPlayer);
+  if (!moves.length) {
+    // Trail: the player to move with no moves loses, terminally
+    if (game.board.config.trailMode) {
+      return player === aiPlayer ? -9999 - depth : 9999 + depth;
+    }
+    return evaluate(game, state, aiPlayer);
+  }
 
   orderMoves(moves);
   const maxBranch = depth >= 2 ? moves.length : Math.min(moves.length, 15);
@@ -226,6 +249,17 @@ function minimax(
 
 function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
   const opp = (1 - aiPlayer) as 0 | 1;
+
+  // Trail: mobility is the whole game. A side's options only ever
+  // shrink (dead hexes accumulate, paths only close), so a mobility
+  // lead is durable; zero mobility on your turn is a loss.
+  if (game.board.config.trailMode) {
+    const myMoves = game.allMoves(state, aiPlayer).length;
+    const oppMoves = game.allMoves(state, opp).length;
+    if (oppMoves === 0) return 9999;
+    if (myMoves === 0) return -9999;
+    return (myMoves - oppMoves) * 12;
+  }
   const myPieces = Object.values(state.pieces).filter(
     (p) => p.player === aiPlayer
   );
@@ -552,4 +586,5 @@ function restoreState(state: GameState, snap: GameState): void {
   state.turnCount = snap.turnCount;
   state.reservePieces = [...snap.reservePieces] as [number, number];
   state.totalDeployed = [...snap.totalDeployed] as [number, number];
+  state.deadCells = [...(snap.deadCells ?? [])];
 }
