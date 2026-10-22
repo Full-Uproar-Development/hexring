@@ -158,3 +158,63 @@ export const TRAIL_CONFIG: GameConfig = {
   turnLimit: 0,
   customTiles: buildTrailTiles(),
 };
+
+// ---------------------------------------------------------------------------
+// TRAIL MINI — the pocket version (founder pick from the mini sweep,
+// 2026-10-22). Radius-3 disk, 3 pieces per side, move range 1: at
+// range 1 the dying hex is exactly your own past path, so this is
+// the Surround/Tron-shaped end of Trail. The sweep (trail_small.py)
+// found 1v1 range-1 thin (deep play converges on one seat; bigger
+// boards become partition-then-fill), but 3v3 at radius 3 stayed
+// balanced in both agent families (P0 0.50 greedy / 0.562 deep),
+// ran ~22 plies, and kept 89-91% of moves within striking distance
+// of an enemy. Layout below is the exact sim cell: pits and starts
+// as generated there. Balance at this size is layout-sensitive, so
+// treat this specific layout as the tested one, not a sample.
+// ---------------------------------------------------------------------------
+
+export const MINI_RADIUS = 3;
+
+export const MINI_PITS: [number, number][] = [
+  [1, 1],
+  [3, -1],
+  [0, -1],
+];
+
+export const MINI_STARTS: [[number, number][], [number, number][]] = [
+  [
+    [-2, -1],
+    [3, -2],
+    [-1, 3],
+  ],
+  [
+    [1, -3],
+    [2, 1],
+    [-3, 2],
+  ],
+];
+
+function buildMiniTiles(): Record<string, TileType> {
+  const tiles: Record<string, TileType> = {};
+  const pitSet = new Set(MINI_PITS.map(([q, r]) => hexKey(q, r)));
+  const start0 = new Set(MINI_STARTS[0].map(([q, r]) => hexKey(q, r)));
+  const start1 = new Set(MINI_STARTS[1].map(([q, r]) => hexKey(q, r)));
+
+  for (const key of hexDisk(MINI_RADIUS)) {
+    if (pitSet.has(key)) tiles[key] = "killbox";
+    else if (start0.has(key)) tiles[key] = "start0";
+    else if (start1.has(key)) tiles[key] = "start1";
+    else tiles[key] = "normal";
+  }
+  return tiles;
+}
+
+export const MINI_CONFIG: GameConfig = {
+  ...TRAIL_CONFIG,
+  boardRadius: MINI_RADIUS,
+  piecesPerPlayer: 3,
+  trailMoveRange: 1,
+  trailPieces: "uniform",
+  pieceKinds: undefined,
+  customTiles: buildMiniTiles(),
+};
