@@ -21,6 +21,9 @@ const TILE_COLORS: Record<TileType, { fill: string; stroke: string; label: strin
   deploy1:  { fill: "#1a1a2e", stroke: "#2d2d6b", label: "Deploy Blue", icon: "+" },
   start0:   { fill: "#3d1a1a", stroke: "#e74c3c", label: "Start Red", icon: "\u25CF" },
   start1:   { fill: "#1a1a3d", stroke: "#3498db", label: "Start Blue", icon: "\u25CF" },
+  // Seats 3-4 (Trail free-for-all presets); shown, but not offered as paint tools
+  start2:   { fill: "#163322", stroke: "#2ecc71", label: "Start Green", icon: "\u25CF" },
+  start3:   { fill: "#2a1a3d", stroke: "#a66be0", label: "Start Purple", icon: "\u25CF" },
 };
 
 const TOOLS: (TileType | "eraser")[] = ["normal", "killbox", "fortress", "deploy0", "deploy1", "start0", "start1", "eraser"];

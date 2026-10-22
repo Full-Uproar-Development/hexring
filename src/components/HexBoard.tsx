@@ -9,8 +9,9 @@ import {
   hexKey,
   parseKey,
 } from "@/lib/engine";
-import type { Piece, Move, GameConfig } from "@/lib/engine";
+import type { Piece, Move, GameConfig, PlayerId } from "@/lib/engine";
 import { DEFAULT_CONFIG } from "@/lib/engine";
+import { SEAT_COLORS, ELIMINATED_PIECE } from "./seatColors";
 
 function hexPoints(cx: number, cy: number, size: number): string {
   const pts: string[] = [];
@@ -25,12 +26,14 @@ interface HexBoardProps {
   pieces: Record<number, Piece>;
   validMoves: Move[];
   selectedPieceId: number | null;
-  currentPlayer: 0 | 1;
+  currentPlayer: PlayerId;
   isInteractive: boolean;
   onHexClick: (q: number, r: number) => void;
   config?: GameConfig;
   animOverride?: { pieceId: number; q: number; r: number } | null;
   deadCells?: string[]; // Trail mode: hexes ("q,r") that died during the game
+  // Trail free-for-all: seats knocked out; their pieces are drawn as neutral obstacles
+  eliminated?: PlayerId[];
 }
 
 export default function HexBoard({
@@ -41,6 +44,7 @@ export default function HexBoard({
   config = DEFAULT_CONFIG,
   animOverride = null,
   deadCells = [],
+  eliminated = [],
 }: HexBoardProps) {
   // Compute effective radius for viewport sizing
   const effectiveRadius = useMemo(() => {
@@ -90,6 +94,8 @@ export default function HexBoard({
         else if (type === "deploy1") { fill = "#1a1a2e"; stroke = "#2d2d6b"; dzList.push({ q, r, player: 1 }); }
         else if (type === "start0") { fill = "#3d1a1a"; stroke = "#e74c3c"; }
         else if (type === "start1") { fill = "#1a1a3d"; stroke = "#3498db"; }
+        else if (type === "start2") { fill = SEAT_COLORS[2].startFill; stroke = SEAT_COLORS[2].piece; }
+        else if (type === "start3") { fill = SEAT_COLORS[3].startFill; stroke = SEAT_COLORS[3].piece; }
         cellList.push({ q, r, fill, stroke });
       }
     } else {
@@ -345,7 +351,9 @@ export default function HexBoard({
         const pq = animOverride && animOverride.pieceId === p.id ? animOverride.q : p.q;
         const pr = animOverride && animOverride.pieceId === p.id ? animOverride.r : p.r;
         const [cx, cy] = hexToPixel(pq, pr, HEX_SIZE);
-        const color = p.player === 0 ? "#e74c3c" : "#3498db";
+        const out = eliminated.includes(p.player);
+        // An eliminated seat's pieces turn grey, keeping a thin ring of their colour
+        const color = out ? ELIMINATED_PIECE : SEAT_COLORS[p.player].piece;
         return (
           <g
             key={`piece-${p.id}`}
@@ -358,8 +366,8 @@ export default function HexBoard({
               cy={0}
               r={10}
               fill={color}
-              stroke="#111"
-              strokeWidth="1.5"
+              stroke={out ? SEAT_COLORS[p.player].piece : "#111"}
+              strokeWidth={out ? "2" : "1.5"}
             />
             {p.kind && p.kind !== "soldier" && (
               <text
