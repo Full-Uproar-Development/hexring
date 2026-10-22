@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import HexBoard from "./HexBoard";
 import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
 import { DEFAULT_CONFIG, TRAIL_CONFIG, MINI_CONFIG, withTrailPieces } from "@/lib/engine";
+import { TRAIL_FFA_PRESETS, findTrailFfaPreset, seatName, MAX_PLAYERS } from "@/lib/engine";
 import type { TrailPiecesVariant } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
 import type { AIDifficulty } from "@/lib/engine/ai";
-import type { Move, GameState, GameConfig, Winner } from "@/lib/engine";
+import type { Move, GameState, GameConfig, Winner, PlayerId } from "@/lib/engine";
+import { SEAT_COLORS } from "./seatColors";
 
 type PlayerMode = "human" | "ai";
+
+// Human/AI per seat (index = seat). Seats 3-4 only matter in Trail free-for-all.
+const DEFAULT_SEAT_MODES: PlayerMode[] = ["human", "ai", "ai", "ai"];
 
 interface HistoryEntry {
   state: GameState;
@@ -27,16 +32,26 @@ const DIFFICULTY_LABELS: Record<AIDifficulty, string> = {
 
 const SETTINGS_KEY = "hexring-settings";
 
-function loadSettings(): { config: GameConfig; redMode: PlayerMode; blueMode: PlayerMode; difficulty: AIDifficulty } | null {
+function loadSettings(): { config: GameConfig; seatModes: PlayerMode[]; difficulty: AIDifficulty } | null {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     // Merge with defaults to handle new fields added after save
+    let config: GameConfig = { ...DEFAULT_CONFIG, ...saved.config };
+    try {
+      new Game(config);
+    } catch {
+      config = DEFAULT_CONFIG; // a saved config the engine rejects
+    }
+    // Older saves only have redMode / blueMode
+    const seatModes: PlayerMode[] =
+      Array.isArray(saved.seatModes) && saved.seatModes.length === MAX_PLAYERS
+        ? saved.seatModes
+        : [saved.redMode ?? "human", saved.blueMode ?? "ai", ...DEFAULT_SEAT_MODES.slice(2)];
     return {
-      config: { ...DEFAULT_CONFIG, ...saved.config },
-      redMode: saved.redMode ?? "human",
-      blueMode: saved.blueMode ?? "ai",
+      config,
+      seatModes,
       difficulty: saved.difficulty ?? 4,
     };
   } catch {
@@ -44,9 +59,12 @@ function loadSettings(): { config: GameConfig; redMode: PlayerMode; blueMode: Pl
   }
 }
 
-function saveSettings(config: GameConfig, redMode: PlayerMode, blueMode: PlayerMode, difficulty: AIDifficulty) {
+function saveSettings(config: GameConfig, seatModes: PlayerMode[], difficulty: AIDifficulty) {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ config, redMode, blueMode, difficulty }));
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ config, seatModes, redMode: seatModes[0], blueMode: seatModes[1], difficulty })
+    );
   } catch { /* ignore */ }
 }
 
@@ -66,20 +84,21 @@ export default function GamePage() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [animOverride, setAnimOverride] = useState<{ pieceId: number; q: number; r: number } | null>(null);
   const animating = useRef(false);
-  const [redMode, setRedMode] = useState<PlayerMode>(() => {
+  const [seatModes, setSeatModes] = useState<PlayerMode[]>(() => {
     if (typeof window !== "undefined") {
       const saved = loadSettings();
-      if (saved) return saved.redMode;
+      if (saved) return saved.seatModes;
     }
-    return "human";
+    return DEFAULT_SEAT_MODES;
   });
-  const [blueMode, setBlueMode] = useState<PlayerMode>(() => {
-    if (typeof window !== "undefined") {
-      const saved = loadSettings();
-      if (saved) return saved.blueMode;
-    }
-    return "ai";
-  });
+  const redMode = seatModes[0];
+  const blueMode = seatModes[1];
+  // 3-4 = Trail free-for-all
+  const playerCount = config.playerCount ?? 2;
+  const seatsInPlay = Array.from({ length: playerCount }, (_, i) => i as PlayerId);
+  const ffaPreset = findTrailFfaPreset(config);
+  // Rules-only engine instance for render-time queries (legal-move counts)
+  const rules = useMemo(() => new Game(config), [config]);
   const [difficulty, setDifficulty] = useState<AIDifficulty>(() => {
     if (typeof window !== "undefined") {
       const saved = loadSettings();
@@ -91,17 +110,17 @@ export default function GamePage() {
 
   // Persist settings to localStorage
   useEffect(() => {
-    saveSettings(config, redMode, blueMode, difficulty);
-  }, [config, redMode, blueMode, difficulty]);
+    saveSettings(config, seatModes, difficulty);
+  }, [config, seatModes, difficulty]);
 
   const isAI = useCallback(
-    (player: 0 | 1) => (player === 0 ? redMode : blueMode) === "ai",
-    [redMode, blueMode]
+    (player: PlayerId) => seatModes[player] === "ai",
+    [seatModes]
   );
 
   const playerName = useCallback(
-    (player: 0 | 1) => {
-      const color = player === 0 ? "Red" : "Blue";
+    (player: PlayerId) => {
+      const color = seatName(player);
       return isAI(player) ? `AI ${color}` : color;
     },
     [isAI]
@@ -136,29 +155,32 @@ export default function GamePage() {
       setAnimOverride(null);
       animating.current = false;
 
+      // Free-for-all: name any seats knocked out by this move
+      const out =
+        game.playerCount > 2 && result.eliminated?.length
+          ? ` — ${result.eliminated.map(seatName).join(" & ")} out of moves, eliminated`
+          : "";
+
       if (result.winner !== null) {
         const winMsg =
-          result.winner === 0
-            ? "RED WINS!"
-            : result.winner === 1
-              ? "BLUE WINS!"
-              : "DRAW!";
-        setMessage(`${desc} — ${winMsg}`);
+          result.winner === "draw"
+            ? "DRAW!"
+            : `${seatName(result.winner).toUpperCase()} WINS!`;
+        setMessage(`${desc}${out} — ${winMsg}`);
         setState({ ...game.state });
         return;
       }
 
       const nextName = playerName(game.state.currentPlayer);
-      const nextIsAI =
-        (game.state.currentPlayer === 0 ? redMode : blueMode) === "ai";
+      const nextIsAI = seatModes[game.state.currentPlayer] === "ai";
       if (nextIsAI) {
-        setMessage(`${desc} — ${nextName} is thinking...`);
+        setMessage(`${desc}${out} — ${nextName} is thinking...`);
       } else {
-        setMessage(`${desc} — ${nextName}'s turn.`);
+        setMessage(`${desc}${out} — ${nextName}'s turn.`);
       }
       setState({ ...game.state });
     },
-    [playerName, redMode, blueMode]
+    [playerName, seatModes]
   );
 
   // --- Execute a move (human or AI) ---
@@ -246,11 +268,10 @@ export default function GamePage() {
         executeMove(move, game, game.state);
       } else {
         // No moves — skip
-        game.state.currentPlayer = (1 - game.state.currentPlayer) as 0 | 1;
+        const stuck = game.state.currentPlayer;
+        game.state.currentPlayer = game.nextAlive(game.state, stuck);
         setMessage(
-          `${playerName(
-            (1 - game.state.currentPlayer) as 0 | 1
-          )} has no moves. ${playerName(game.state.currentPlayer)}'s turn.`
+          `${playerName(stuck)} has no moves. ${playerName(game.state.currentPlayer)}'s turn.`
         );
         setState({ ...game.state });
       }
@@ -402,8 +423,20 @@ export default function GamePage() {
     if (!history.length || state.winner !== null) return;
     const game = gameRef.current;
 
-    // If playing vs AI, undo both moves
-    if (
+    if (playerCount > 2) {
+      // Free-for-all: on your turn, step back past the AI seats' moves to
+      // your own last turn (a human seat's undo never strands you on an AI turn)
+      const newHistory = [...history];
+      let prev = newHistory.pop()!;
+      if (!isAI(state.currentPlayer)) {
+        while (isAI(prev.state.currentPlayer) && newHistory.length) {
+          prev = newHistory.pop()!;
+        }
+      }
+      game.state = game.snapshot(prev.state);
+      setHistory(newHistory);
+    } else if (
+      // If playing vs AI, undo both moves
       history.length >= 2 &&
       !isAI(state.currentPlayer) &&
       isAI((1 - state.currentPlayer) as 0 | 1)
@@ -426,7 +459,7 @@ export default function GamePage() {
       `Move undone. ${playerName(game.state.currentPlayer)}'s turn.`
     );
     setState({ ...game.state });
-  }, [history, state.winner, state.currentPlayer, isAI, playerName]);
+  }, [history, state.winner, state.currentPlayer, isAI, playerName, playerCount]);
 
   // --- New game ---
   const handleNewGame = useCallback(() => {
@@ -438,15 +471,22 @@ export default function GamePage() {
     setDeployMode(false);
     setPendingPush(null);
     aiThinking.current = false;
-    setMessage(`New game! ${playerName(0)}'s turn.`);
+    setMessage(`New game! ${playerName(game.state.currentPlayer)}'s turn.`);
     setState({ ...game.state });
   }, [playerName]);
 
   // --- Apply new config ---
   const handleConfigChange = useCallback(
     (newConfig: GameConfig) => {
+      let game: Game;
+      try {
+        game = new Game(newConfig);
+      } catch (e) {
+        // e.g. Settings changes that a 3-4 player board can't support
+        setMessage(`Can't use those settings: ${(e as Error).message}`);
+        return;
+      }
       setConfig(newConfig);
-      const game = new Game(newConfig);
       gameRef.current = game;
       setHistory([]);
       setSelectedPieceId(null);
@@ -454,16 +494,16 @@ export default function GamePage() {
       setDeployMode(false);
       setPendingPush(null);
       aiThinking.current = false;
-      setMessage(`Settings applied! ${playerName(0)}'s turn.`);
+      setMessage(`Settings applied! ${playerName(game.state.currentPlayer)}'s turn.`);
       setState({ ...game.state });
     },
     [playerName]
   );
 
-  // Reset game when mode changes
-  const handleRedModeChange = useCallback(
-    (mode: PlayerMode) => {
-      setRedMode(mode);
+  // Reset game when a seat switches between Human and AI
+  const handleSeatModeChange = useCallback(
+    (seat: PlayerId, mode: PlayerMode) => {
+      setSeatModes((prev) => prev.map((m, i) => (i === seat ? mode : m)));
       // Defer reset to after state update
       setTimeout(() => {
         const game = gameRef.current;
@@ -472,25 +512,10 @@ export default function GamePage() {
         setSelectedPieceId(null);
         setValidMoves([]);
         aiThinking.current = false;
-        const rName = mode === "ai" ? "AI Red" : "Red";
-        setMessage(`New game! ${rName} goes first.`);
-        setState({ ...game.state });
-      }, 0);
-    },
-    []
-  );
-
-  const handleBlueModeChange = useCallback(
-    (mode: PlayerMode) => {
-      setBlueMode(mode);
-      setTimeout(() => {
-        const game = gameRef.current;
-        game.reset();
-        setHistory([]);
-        setSelectedPieceId(null);
-        setValidMoves([]);
-        aiThinking.current = false;
-        setMessage("New game! Red goes first.");
+        const first = game.state.currentPlayer;
+        const firstName =
+          seat === first && mode === "ai" ? `AI ${seatName(first)}` : seatName(first);
+        setMessage(`New game! ${firstName} goes first.`);
         setState({ ...game.state });
       }, 0);
     },
@@ -502,19 +527,26 @@ export default function GamePage() {
   let turnColor: string;
   if (state.winner !== null) {
     turnText =
-      state.winner === 0
-        ? "RED WINS!"
-        : state.winner === 1
-          ? "BLUE WINS!"
-          : "DRAW!";
+      state.winner === "draw"
+        ? "DRAW!"
+        : `${seatName(state.winner).toUpperCase()} WINS!`;
     turnColor = "border-yellow-500 text-yellow-500";
-  } else if (state.currentPlayer === 0) {
-    turnText = isAI(0) ? "RED AI THINKING..." : "RED'S TURN";
-    turnColor = "border-red-500 text-red-500";
   } else {
-    turnText = isAI(1) ? "BLUE AI THINKING..." : "BLUE'S TURN";
-    turnColor = "border-blue-500 text-blue-500";
+    const cp = state.currentPlayer;
+    const name = seatName(cp).toUpperCase();
+    turnText = isAI(cp) ? `${name} AI THINKING...` : `${name}'S TURN`;
+    turnColor = `${SEAT_COLORS[cp].border} ${SEAT_COLORS[cp].text}`;
   }
+
+  // Free-for-all only: turn order, and legal-move counts for the scoreboard
+  const turnOrder = config.turnOrder ?? seatsInPlay;
+  const humanSeats = seatsInPlay.filter((p) => !isAI(p));
+  const ffaSubtitle =
+    humanSeats.length === 0
+      ? `AI free-for-all — ${playerCount} AIs, watch them battle!`
+      : humanSeats.length === 1
+        ? `You are ${seatName(humanSeats[0])} — ${playerCount}-player free-for-all, last one able to move wins`
+        : `${playerCount}-player free-for-all — ${seatName(turnOrder[0])} goes first`;
 
   return (
     <div className="min-h-screen bg-[#1a1a2e] text-gray-200 flex flex-col items-center p-4">
@@ -522,13 +554,15 @@ export default function GamePage() {
         HEXRING
       </h1>
       <p className="text-sm text-gray-500 mb-3">
-        {redMode === "ai" && blueMode === "ai"
-          ? "AI vs AI — watch them battle!"
-          : redMode === "human" && blueMode === "human"
-            ? "2 Player — Red goes first"
-            : redMode === "ai"
-              ? "You are Blue — click a piece, then click where to move"
-              : "You are Red — click a piece, then click where to move"}
+        {playerCount > 2
+          ? ffaSubtitle
+          : redMode === "ai" && blueMode === "ai"
+            ? "AI vs AI — watch them battle!"
+            : redMode === "human" && blueMode === "human"
+              ? "2 Player — Red goes first"
+              : redMode === "ai"
+                ? "You are Blue — click a piece, then click where to move"
+                : "You are Red — click a piece, then click where to move"}
       </p>
 
       <div className="flex gap-5 items-start flex-wrap justify-center">
@@ -554,6 +588,7 @@ export default function GamePage() {
             config={config}
             animOverride={animOverride}
             deadCells={state.deadCells ?? []}
+            eliminated={playerCount > 2 ? state.eliminated : undefined}
           />
         </div>
 
@@ -566,38 +601,35 @@ export default function GamePage() {
             {turnText}
           </div>
 
-          {/* Mode selectors */}
-          <div className="flex gap-2">
-            <label className="flex-1 text-sm text-gray-400">
-              Red:{" "}
-              <select
-                value={redMode}
-                onChange={(e) =>
-                  handleRedModeChange(e.target.value as PlayerMode)
-                }
-                className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
-              >
-                <option value="human">Human</option>
-                <option value="ai">AI</option>
-              </select>
-            </label>
-            <label className="flex-1 text-sm text-gray-400">
-              Blue:{" "}
-              <select
-                value={blueMode}
-                onChange={(e) =>
-                  handleBlueModeChange(e.target.value as PlayerMode)
-                }
-                className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
-              >
-                <option value="human">Human</option>
-                <option value="ai">AI</option>
-              </select>
-            </label>
+          {/* Mode selectors (one per seat) */}
+          <div className={playerCount > 2 ? "grid grid-cols-2 gap-2" : "flex gap-2"}>
+            {seatsInPlay.map((seat) => (
+              <label key={seat} className="flex-1 text-sm text-gray-400">
+                {seatName(seat)}:{" "}
+                <select
+                  value={seatModes[seat]}
+                  onChange={(e) =>
+                    handleSeatModeChange(seat, e.target.value as PlayerMode)
+                  }
+                  className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
+                >
+                  <option value="human">Human</option>
+                  <option value="ai">AI</option>
+                </select>
+              </label>
+            ))}
           </div>
 
+          {/* Free-for-all AI has no levels */}
+          {playerCount > 2 && seatsInPlay.some((p) => isAI(p)) && (
+            <div className="text-xs text-gray-500">
+              AI seats play greedy: the move that leaves them the most moves
+              and the strongest rival the fewest.
+            </div>
+          )}
+
           {/* AI difficulty */}
-          {(redMode === "ai" || blueMode === "ai") && (
+          {playerCount === 2 && (redMode === "ai" || blueMode === "ai") && (
             <label className="text-sm text-gray-400">
               AI Level:{" "}
               <select
@@ -618,7 +650,7 @@ export default function GamePage() {
 
           {/* Trail piece types (full Trail board only: the special
               slots are defined on the radius-5 starts) */}
-          {config.trailMode && config.boardRadius > 3 && (
+          {config.trailMode && config.boardRadius > 3 && playerCount === 2 && (
             <label className="text-sm text-gray-400">
               Pieces:{" "}
               <select
@@ -638,7 +670,65 @@ export default function GamePage() {
             </label>
           )}
 
+          {/* Trail player count: 2-player Trail or a free-for-all board */}
+          {config.trailMode && (
+            <label className="text-sm text-gray-400">
+              Players:{" "}
+              <select
+                value={playerCount > 2 ? (ffaPreset?.id ?? "custom") : "2p"}
+                onChange={(e) => {
+                  const preset = TRAIL_FFA_PRESETS.find((p) => p.id === e.target.value);
+                  if (e.target.value === "2p") handleConfigChange(TRAIL_CONFIG);
+                  else if (preset) handleConfigChange(preset.config);
+                }}
+                className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
+              >
+                <option value="2p">2 players (Trail)</option>
+                {TRAIL_FFA_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+                {playerCount > 2 && !ffaPreset && (
+                  <option value="custom" disabled>
+                    {playerCount} players (custom board)
+                  </option>
+                )}
+              </select>
+            </label>
+          )}
+
           {/* Scoreboard */}
+          {playerCount > 2 ? (
+            <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-3 flex flex-col gap-1.5">
+              {turnOrder.map((seat) => {
+                const outAt = state.eliminated.indexOf(seat);
+                const toMove = state.winner === null && state.currentPlayer === seat;
+                const pieces = Object.values(state.pieces).filter((p) => p.player === seat).length;
+                return (
+                  <div
+                    key={seat}
+                    className={`flex items-center justify-between text-sm ${outAt >= 0 ? "opacity-50" : ""}`}
+                  >
+                    <span className={`font-bold ${SEAT_COLORS[seat].text}`}>
+                      {toMove ? "▶ " : ""}
+                      {playerName(seat)}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {state.winner === seat
+                        ? "WINNER"
+                        : outAt >= 0
+                          ? `out ${outAt + 1}${["st", "nd", "rd"][outAt] ?? "th"}`
+                          : `${pieces} pieces · ${rules.allMoves(state, seat).length} moves`}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="text-xs text-gray-500 text-center mt-1">
+                {state.deadCells?.length ?? 0} hexes dead · no move = out
+              </div>
+            </div>
+          ) : (
           <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-4 flex justify-around">
             <div className="text-center">
               <div className="text-sm font-bold text-red-500">
@@ -676,6 +766,7 @@ export default function GamePage() {
               )}
             </div>
           </div>
+          )}
 
           {/* Status */}
           <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-4 min-h-[70px]">
@@ -786,6 +877,8 @@ export default function GamePage() {
               ? `First to ${killTarget} kills wins!`
               : config.winCondition === "last_standing"
                 ? "Reduce opponent to 1 piece to win!"
+                : config.winCondition === "no_move_loses" && playerCount > 2
+                  ? `Trail free-for-all (${playerCount} players): move one of your pieces up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Turns go ${turnOrder.map(seatName).join(" → ")}. Start your turn with no legal move and you are out: your pieces stay as grey obstacles. Last player left wins.`
                 : config.winCondition === "no_move_loses"
                   ? `Trail: move a piece up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose.` +
                     (config.trailPieces === "scouts"

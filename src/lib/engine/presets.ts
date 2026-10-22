@@ -2,7 +2,7 @@
 // by more than a settings tweak.
 
 import { hexDisk, hexKey } from "./hex";
-import type { GameConfig, PieceKind, TileType } from "./types";
+import type { GameConfig, PieceKind, PlayerId, TileType } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -218,3 +218,125 @@ export const MINI_CONFIG: GameConfig = {
   pieceKinds: undefined,
   customTiles: buildMiniTiles(),
 };
+
+// ---------------------------------------------------------------------------
+// TRAIL FREE-FOR-ALL — 3-4 players, local only.
+//
+// Rules are Trail's, generalized: on your turn move one of your pieces
+// up to the configured range through empty hexes; the hex it leaves
+// dies; no captures. Turns cycle through the seats still in the game
+// (config.turnOrder, default 0, 1, 2, ...). A seat that starts its turn
+// with no legal move is eliminated: it never moves again, and its
+// pieces and dead hexes stay on the board as obstacles. Last seat left
+// wins. With 2 seats this is exactly 2-player Trail.
+//
+// Every multiplayer parameter lives in the GameConfig (playerCount,
+// turnOrder, trailMoveRange, pits and starts in customTiles, optional
+// pieceKinds), so a board is pure data: describe it with a
+// TrailBoardSpec, build it with buildTrailBoard, and list it in
+// TRAIL_FFA_PRESETS to make it selectable in the UI.
+// ---------------------------------------------------------------------------
+
+export interface TrailBoardSpec {
+  radius: number;
+  pits: [number, number][];
+  starts: [number, number][][]; // one list per seat, in seat order (2-4 seats)
+  moveRange?: number; // default: Trail's (2)
+  turnOrder?: PlayerId[]; // default: seat order
+  pieceKinds?: Record<string, PieceKind>; // start hex "q,r" -> kind
+}
+
+const START_TILES: TileType[] = ["start0", "start1", "start2", "start3"];
+
+export function buildTrailBoard(spec: TrailBoardSpec): GameConfig {
+  const pitSet = new Set(spec.pits.map(([q, r]) => hexKey(q, r)));
+  const startOf = new Map<string, TileType>();
+  spec.starts.forEach((cells, seat) => {
+    for (const [q, r] of cells) {
+      const key = hexKey(q, r);
+      if (pitSet.has(key) || startOf.has(key)) {
+        throw new Error(`buildTrailBoard: start ${key} overlaps a pit or another start`);
+      }
+      startOf.set(key, START_TILES[seat]);
+    }
+  });
+  const disk = hexDisk(spec.radius);
+  for (const key of [...pitSet, ...startOf.keys()]) {
+    if (!disk.has(key)) throw new Error(`buildTrailBoard: ${key} is off the radius-${spec.radius} board`);
+  }
+
+  const tiles: Record<string, TileType> = {};
+  for (const key of disk) {
+    tiles[key] = pitSet.has(key) ? "killbox" : (startOf.get(key) ?? "normal");
+  }
+  return {
+    ...TRAIL_CONFIG,
+    playerCount: spec.starts.length,
+    turnOrder: spec.turnOrder,
+    boardRadius: spec.radius,
+    piecesPerPlayer: Math.max(...spec.starts.map((s) => s.length)),
+    trailMoveRange: spec.moveRange ?? TRAIL_CONFIG.trailMoveRange,
+    trailPieces: "uniform",
+    pieceKinds: spec.pieceKinds,
+    customTiles: tiles,
+  };
+}
+
+// PLACEHOLDER boards — not simulation-tuned; replace with sim boards.
+// Radius 5 with Trail's six asymmetric pits; 3 pieces per seat spaced
+// evenly round the outer ring, colours cycling, each seat's pieces 120
+// degrees apart, Red starting on (-5,5) as in 2-player Trail. On the
+// 4-seat board every start's 180-degree rotation is also a start (12
+// starts on a 30-hex ring); only the pits break that symmetry.
+export const TRAIL_FFA_PLACEHOLDER_3: TrailBoardSpec = {
+  radius: TRAIL_RADIUS,
+  pits: TRAIL_PITS,
+  starts: [
+    [[-5, 5], [5, 0], [0, -5]],
+    [[-2, 5], [5, -3], [-3, -2]],
+    [[2, 3], [3, -5], [-5, 2]],
+  ],
+};
+
+export const TRAIL_FFA_PLACEHOLDER_4: TrailBoardSpec = {
+  radius: TRAIL_RADIUS,
+  pits: TRAIL_PITS,
+  starts: [
+    [[-5, 5], [5, 0], [0, -5]],
+    [[-2, 5], [5, -3], [-3, -2]],
+    [[0, 5], [5, -5], [-5, 0]],
+    [[3, 2], [2, -5], [-5, 3]],
+  ],
+};
+
+export interface TrailFfaPreset {
+  id: string;
+  label: string; // shown in the Players dropdown
+  config: GameConfig;
+}
+
+// Boards offered in the UI's Players dropdown, in order. The first
+// preset for a given player count is that count's default.
+export const TRAIL_FFA_PRESETS: TrailFfaPreset[] = [
+  {
+    id: "ffa3-placeholder",
+    label: "3 players (placeholder board)",
+    config: buildTrailBoard(TRAIL_FFA_PLACEHOLDER_3),
+  },
+  {
+    id: "ffa4-placeholder",
+    label: "4 players (placeholder board)",
+    config: buildTrailBoard(TRAIL_FFA_PLACEHOLDER_4),
+  },
+];
+
+/** The preset a config came from (matched on seats and tiles), if any. */
+export function findTrailFfaPreset(config: GameConfig): TrailFfaPreset | undefined {
+  if ((config.playerCount ?? 2) <= 2 || !config.customTiles) return undefined;
+  const tiles = JSON.stringify(config.customTiles);
+  return TRAIL_FFA_PRESETS.find(
+    (p) =>
+      p.config.playerCount === config.playerCount &&
+      JSON.stringify(p.config.customTiles) === tiles
+  );
+}

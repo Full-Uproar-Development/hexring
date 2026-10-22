@@ -2,12 +2,15 @@
 
 import { DIRS, hexKey, parseKey } from "./hex";
 import { Board } from "./board";
+import { MAX_PLAYERS, MIN_PLAYERS, seatName } from "./players";
 import type {
   GameState,
   GameConfig,
   Piece,
+  PlayerId,
   Move,
   ChainHop,
+  TurnResult,
   Winner,
 } from "./types";
 import { DEFAULT_CONFIG } from "./types";
@@ -18,6 +21,7 @@ export class Game {
 
   constructor(config: GameConfig = DEFAULT_CONFIG) {
     this.board = new Board(config);
+    validateConfig(this.board);
     this.state = this.createInitialState();
   }
 
@@ -25,12 +29,13 @@ export class Game {
     const pieces: Record<number, Piece> = {};
     let id = 0;
     const kinds = this.board.config.pieceKinds ?? {};
-    for (let player = 0; player < 2; player++) {
+    const seats = this.board.startPositions.length;
+    for (let player = 0; player < seats; player++) {
       for (const pos of this.board.startPositions[player]) {
         const kind = kinds[hexKey(pos.q, pos.r)];
         pieces[id] = {
           id,
-          player: player as 0 | 1,
+          player: player as PlayerId,
           q: pos.q,
           r: pos.r,
           ...(kind ? { kind } : {}),
@@ -42,17 +47,81 @@ export class Game {
     const state: GameState = {
       pieces,
       nextPieceId: id,
-      currentPlayer: 0,
+      currentPlayer: this.turnOrder()[0],
       winner: null,
       positionHistory: {},
       turnCount: 0,
-      reservePieces: [reserve, reserve],
-      totalDeployed: [0, 0],
+      reservePieces: Array(seats).fill(reserve),
+      totalDeployed: Array(seats).fill(0),
       deadCells: [],
+      eliminated: [],
     };
     // Record initial position
     this.recordPosition(state);
+    // Trail: the first seat also "starts its turn" — knock it out if it
+    // has no legal move (only possible on a degenerate board)
+    if (this.board.config.winCondition === "no_move_loses") {
+      this.settleTurnStart(state);
+    }
     return state;
+  }
+
+  // --- Players / turn order ---
+
+  get playerCount(): number {
+    return this.board.startPositions.length;
+  }
+
+  /** Seats in turn order (config.turnOrder, or 0, 1, 2, ...). */
+  turnOrder(): PlayerId[] {
+    return (
+      this.board.config.turnOrder ??
+      Array.from({ length: this.playerCount }, (_, i) => i as PlayerId)
+    );
+  }
+
+  isEliminated(state: GameState, player: PlayerId): boolean {
+    return (state.eliminated ?? []).includes(player);
+  }
+
+  /** Seats still in the game, in turn order. */
+  alivePlayers(state: GameState): PlayerId[] {
+    return this.turnOrder().filter((p) => !this.isEliminated(state, p));
+  }
+
+  /** The next seat after `from` in turn order that is still in the game. */
+  nextAlive(state: GameState, from: PlayerId): PlayerId {
+    const order = this.turnOrder();
+    const at = order.indexOf(from);
+    for (let k = 1; k <= order.length; k++) {
+      const p = order[(at + k) % order.length];
+      if (!this.isEliminated(state, p)) return p;
+    }
+    return from;
+  }
+
+  /**
+   * Trail: state.currentPlayer is about to start their turn. Any seat
+   * that starts its turn with no legal move is eliminated (pieces stay
+   * as obstacles) and play passes on; the last seat standing wins.
+   */
+  private settleTurnStart(state: GameState): TurnResult {
+    const out: PlayerId[] = [];
+    while (!this.allMoves(state, state.currentPlayer).length) {
+      const loser = state.currentPlayer;
+      state.eliminated.push(loser);
+      out.push(loser);
+      const alive = this.alivePlayers(state);
+      // Seats go out one at a time, so exactly one is left at the end
+      if (alive.length <= 1) {
+        const w = alive[0];
+        state.winner = w;
+        state.winReason = `${seatName(loser)} has no legal moves — ${seatName(w)} wins!`;
+        return { winner: w, winReason: state.winReason, eliminated: out };
+      }
+      state.currentPlayer = this.nextAlive(state, loser);
+    }
+    return { winner: null, eliminated: out };
   }
 
   reset(): void {
@@ -521,15 +590,18 @@ export class Game {
     return results;
   }
 
-  allMoves(state: GameState, player?: 0 | 1): Move[] {
+  allMoves(state: GameState, player?: PlayerId): Move[] {
     const p = player ?? state.currentPlayer;
+    // An eliminated seat never moves again (its pieces are just obstacles)
+    if (this.isEliminated(state, p)) return [];
     const moves: Move[] = [];
     for (const piece of Object.values(state.pieces)) {
       if (piece.player === p) moves.push(...this.genMoves(state, piece));
     }
     // DEPLOY moves — place a reserve piece on an empty hex in player's deploy zone
-    if (this.board.config.deployEnabled && state.reservePieces[p] > 0) {
-      for (const key of this.board.deployZone[p]) {
+    const zone = this.board.deployZone[p];
+    if (this.board.config.deployEnabled && zone && state.reservePieces[p] > 0) {
+      for (const key of zone) {
         const { q, r } = parseKey(key);
         if (!this.occupied(state, q, r) && !this.board.isKillbox(q, r)) {
           moves.push({
@@ -669,10 +741,7 @@ export class Game {
 
   // --- Execute a full turn (apply + check win + switch player) ---
 
-  executeTurn(move: Move): {
-    winner: Winner;
-    winReason?: string;
-  } {
+  executeTurn(move: Move): TurnResult {
     this.applyMove(this.state, move);
     this.state.turnCount++;
 
@@ -685,20 +754,15 @@ export class Game {
       return { winner: w, winReason: this.state.winReason };
     }
 
+    // Trail: play passes to the next seat still in the game; a seat that
+    // starts its turn with no legal move is eliminated, last one left wins
+    if (this.board.config.winCondition === "no_move_loses") {
+      this.state.currentPlayer = this.nextAlive(this.state, this.state.currentPlayer);
+      return this.settleTurnStart(this.state);
+    }
+
     // Switch player
     this.state.currentPlayer = (1 - this.state.currentPlayer) as 0 | 1;
-
-    // Trail: a player who starts their turn with no legal move loses
-    if (this.board.config.winCondition === "no_move_loses") {
-      const toMove = this.state.currentPlayer;
-      if (!this.allMoves(this.state, toMove).length) {
-        const w = (1 - toMove) as 0 | 1;
-        this.state.winner = w;
-        this.state.winReason = `${toMove === 0 ? "Red" : "Blue"} has no legal moves — ${w === 0 ? "Red" : "Blue"} wins!`;
-        return { winner: w, winReason: this.state.winReason };
-      }
-      return { winner: null };
-    }
 
     // Check turn limit
     const tl = this.board.config.turnLimit;
@@ -756,9 +820,47 @@ export class Game {
       winner: state.winner,
       positionHistory: { ...state.positionHistory },
       turnCount: state.turnCount,
-      reservePieces: [...state.reservePieces] as [number, number],
-      totalDeployed: [...state.totalDeployed] as [number, number],
+      reservePieces: [...state.reservePieces],
+      totalDeployed: [...state.totalDeployed],
       deadCells: [...(state.deadCells ?? [])],
+      eliminated: [...(state.eliminated ?? [])],
     };
+  }
+}
+
+/**
+ * Reject configs the engine cannot play. Free-for-all (3-4 players) is
+ * Trail only, and every seat needs start tiles on a custom board.
+ */
+function validateConfig(board: Board): void {
+  const cfg = board.config;
+  const n = cfg.playerCount ?? 2;
+  if (!Number.isInteger(n) || n < MIN_PLAYERS || n > MAX_PLAYERS) {
+    throw new Error(`playerCount must be ${MIN_PLAYERS}-${MAX_PLAYERS}, got ${n}`);
+  }
+  if (n > 2) {
+    if (!cfg.trailMode || cfg.winCondition !== "no_move_loses") {
+      throw new Error("3-4 players is Trail only (trailMode + no_move_loses)");
+    }
+    if (!cfg.customTiles) {
+      throw new Error("3-4 players needs customTiles with start tiles for every seat");
+    }
+    if (cfg.deployEnabled) {
+      throw new Error("deploy is a 2-player mechanic");
+    }
+  }
+  if (board.startPositions.length !== n) {
+    throw new Error(`board has starts for ${board.startPositions.length} seats, playerCount is ${n}`);
+  }
+  if (n > 2) {
+    board.startPositions.forEach((s, i) => {
+      if (!s.length) throw new Error(`seat ${i} (start${i}) has no start tiles`);
+    });
+  }
+  if (cfg.turnOrder) {
+    const sorted = [...cfg.turnOrder].sort((a, b) => a - b);
+    if (sorted.length !== n || sorted.some((p, i) => p !== i)) {
+      throw new Error(`turnOrder must list each seat 0-${n - 1} exactly once`);
+    }
   }
 }

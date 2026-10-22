@@ -15,6 +15,7 @@ export type {
   Hex,
   Piece,
   PieceKind,
+  PlayerId,
   Move,
   MoveType,
   ChainHop,
@@ -24,6 +25,7 @@ export type {
   TileType,
   GameState,
   GameConfig,
+  TurnResult,
 } from "./types";
 export { DEFAULT_CONFIG } from "./types";
 export {
@@ -37,5 +39,11 @@ export {
   MINI_RADIUS,
   trailPieceKinds,
   withTrailPieces,
+  buildTrailBoard,
+  TRAIL_FFA_PLACEHOLDER_3,
+  TRAIL_FFA_PLACEHOLDER_4,
+  TRAIL_FFA_PRESETS,
+  findTrailFfaPreset,
 } from "./presets";
-export type { TrailPiecesVariant } from "./presets";
+export type { TrailPiecesVariant, TrailBoardSpec, TrailFfaPreset } from "./presets";
+export { SEAT_NAMES, seatName, MIN_PLAYERS, MAX_PLAYERS } from "./players";

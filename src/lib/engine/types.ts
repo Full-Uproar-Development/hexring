@@ -7,9 +7,13 @@ export interface Hex {
 
 export type PieceKind = "soldier" | "scout" | "hopper";
 
+// Seat index. Standard HexRing and 2-player Trail only ever use 0 and 1;
+// Trail free-for-all (playerCount 3-4) also uses 2 and 3.
+export type PlayerId = 0 | 1 | 2 | 3;
+
 export interface Piece {
   id: number;
-  player: 0 | 1;
+  player: PlayerId;
   q: number;
   r: number;
   kind?: PieceKind; // Trail piece types; absent = soldier
@@ -51,19 +55,31 @@ export interface Move {
   followUpPush?: FollowUpPush;
 }
 
-export type Winner = 0 | 1 | "draw" | null;
+export type Winner = PlayerId | "draw" | null;
 
 export interface GameState {
   pieces: Record<number, Piece>;
   nextPieceId: number;
-  currentPlayer: 0 | 1;
+  currentPlayer: PlayerId;
   winner: Winner;
   winReason?: string;
   positionHistory: Record<string, number>;
   turnCount: number;
-  reservePieces: [number, number]; // undeployed pieces per player
-  totalDeployed: [number, number]; // how many pieces each player has deployed from reserve
+  reservePieces: number[]; // undeployed pieces per player (index = seat)
+  totalDeployed: number[]; // how many pieces each player has deployed from reserve
   deadCells: string[]; // Trail mode: hexes ("q,r") that died when a piece left them; permanently unplayable
+  // Trail (no_move_loses): seats knocked out, in the order they went out.
+  // An eliminated seat never moves again; its pieces stay on the board
+  // as neutral obstacles. In a 2-player game the loser ends up here.
+  eliminated: PlayerId[];
+}
+
+// What executeTurn reports back to the caller.
+export interface TurnResult {
+  winner: Winner;
+  winReason?: string;
+  // Trail: seats eliminated while settling whose turn it is next
+  eliminated?: PlayerId[];
 }
 
 export type WinCondition =
@@ -72,9 +88,26 @@ export type WinCondition =
   | "eliminate_all"
   | "no_move_loses";
 export type StartLayout = "clustered" | "spread";
-export type TileType = "normal" | "killbox" | "fortress" | "deploy0" | "deploy1" | "start0" | "start1";
+export type TileType =
+  | "normal"
+  | "killbox"
+  | "fortress"
+  | "deploy0"
+  | "deploy1"
+  | "start0"
+  | "start1"
+  | "start2" // seat 3 start (Trail free-for-all)
+  | "start3"; // seat 4 start (Trail free-for-all)
 
 export interface GameConfig {
+  // Players. 2 = standard head-to-head (every mode). 3-4 = Trail
+  // free-for-all only: requires trailMode, winCondition "no_move_loses"
+  // and customTiles with start tiles for every seat (start0..start3).
+  playerCount: number;
+  // Seat order for turns, e.g. [0, 2, 1, 3]. Omitted = 0, 1, 2, ...
+  // Eliminated seats are skipped.
+  turnOrder?: PlayerId[];
+
   // Board geometry
   boardRadius: number;
   killboxRadius: number;
@@ -129,6 +162,7 @@ export interface GameConfig {
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
+  playerCount: 2,
   boardRadius: 4,
   killboxRadius: 1,
   fortressRing: 2,
