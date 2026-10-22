@@ -9,8 +9,11 @@ export class Board {
   readonly cells: Set<string>;
   readonly killbox: Set<string>;
   readonly fortress: Set<string>;
-  readonly deployZone: [Set<string>, Set<string>]; // per-player deploy zones
-  readonly startPositions: [Hex[], Hex[]];
+  // Per-player deploy zones. Deploy is a 2-player mechanic, so there are
+  // always exactly two entries; seats 2-3 have none.
+  readonly deployZone: Set<string>[];
+  // Start hexes per seat, index = seat; one entry per player in the game.
+  readonly startPositions: Hex[][];
 
   constructor(config: GameConfig = DEFAULT_CONFIG) {
     if (config.customTiles) {
@@ -22,6 +25,8 @@ export class Board {
       const d1 = new Set<string>();
       const s0: Hex[] = [];
       const s1: Hex[] = [];
+      const s2: Hex[] = [];
+      const s3: Hex[] = [];
 
       for (const [key, type] of Object.entries(config.customTiles)) {
         cells.add(key);
@@ -31,17 +36,22 @@ export class Board {
         else if (type === "deploy1") d1.add(key);
         else if (type === "start0") s0.push(parseKey(key));
         else if (type === "start1") s1.push(parseKey(key));
+        else if (type === "start2") s2.push(parseKey(key));
+        else if (type === "start3") s3.push(parseKey(key));
       }
+      // Only the seats in play get pieces; with 2 players any start2/start3
+      // tiles are ordinary cells.
+      const seats = [s0, s1, s2, s3].slice(0, Math.max(2, config.playerCount ?? 2));
 
       this.cells = cells;
       this.killbox = killbox;
       this.fortress = fortress;
       this.deployZone = [d0, d1];
-      this.startPositions = [s0, s1];
+      this.startPositions = seats;
       // Override piecesPerPlayer to match start tiles
       this.config = {
         ...config,
-        piecesPerPlayer: Math.max(s0.length, s1.length),
+        piecesPerPlayer: Math.max(...seats.map((s) => s.length)),
         deployEnabled: d0.size > 0 || d1.size > 0,
       };
       return;

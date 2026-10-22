@@ -2,6 +2,7 @@
 // Designed to run in a Web Worker or on the main thread
 
 import { Game } from "./game";
+import { greedyMarginMove } from "./ai-multi";
 import { DIRS, hexDist } from "./hex";
 import type { GameState, Move, Piece } from "./types";
 
@@ -33,6 +34,10 @@ export function aiChooseMove(
   state: GameState,
   difficulty: AIDifficulty = 4
 ): Move | null {
+  // Trail free-for-all (3-4 players) has its own AI; everything below
+  // is the 2-player AI, unchanged.
+  if (game.playerCount > 2) return greedyMarginMove(game, state);
+
   const moves = game.allMoves(state);
   if (!moves.length) return null;
 
@@ -41,7 +46,7 @@ export function aiChooseMove(
     return moves[Math.floor(Math.random() * moves.length)];
   }
 
-  const aiPlayer = state.currentPlayer;
+  const aiPlayer = state.currentPlayer as 0 | 1;
 
   // --- Tactical override (difficulty 3+): instant win / loss detection ---
   if (difficulty >= 3) {
@@ -584,7 +589,8 @@ function restoreState(state: GameState, snap: GameState): void {
   state.winner = snap.winner;
   state.positionHistory = { ...snap.positionHistory };
   state.turnCount = snap.turnCount;
-  state.reservePieces = [...snap.reservePieces] as [number, number];
-  state.totalDeployed = [...snap.totalDeployed] as [number, number];
+  state.reservePieces = [...snap.reservePieces];
+  state.totalDeployed = [...snap.totalDeployed];
   state.deadCells = [...(snap.deadCells ?? [])];
+  state.eliminated = [...(snap.eliminated ?? [])];
 }
