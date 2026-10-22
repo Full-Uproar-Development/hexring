@@ -1,7 +1,7 @@
 // Variant presets — full GameConfigs that differ from standard HexRing
 // by more than a settings tweak.
 
-import { hexDisk, hexKey, parseKey } from "./hex";
+import { hexDisk, hexKey } from "./hex";
 import type { GameConfig, TileType } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
@@ -25,6 +25,21 @@ import { DEFAULT_CONFIG } from "./types";
 // (same radius, no extra pits) mirrored perfectly, 16/16 — it is the
 // asymmetry that does the work, not the size.
 // Evidence: ~/workspace/hexring/search/TRAIL_PROBE.md (addendum).
+//
+// Layout v2 (founder, after playing v1 on prod, 2026-10-21): v1 felt
+// like "waiting to see who traps themselves first" — home arcs plus a
+// dead centre made it parallel solitaire (in sim, 61% of v1 moves did
+// not reduce the opponent's options at all, and contact began around
+// ply 12). v2 removes the centre pit (open disk, crossable middle)
+// and intersperses the starts: every 3rd hex of the outer ring,
+// colours alternating, so an enemy is 3 hexes away on both sides and
+// moves hurt the opponent from ply 0 (sim: 66% of moves reduce enemy
+// mobility, engaging rate 0.78). The starts are also not rotationally
+// paired (a start's 180-degree rotation is never a start), so the
+// mirror has no opening to copy from, on top of the pits. Endings are
+// still exhaustion-shaped — that is Trail's nature without captures —
+// but the trapping is now mostly done TO you, not BY you.
+// Evidence: ~/workspace/hexring/search/trail_mix.py.
 // ---------------------------------------------------------------------------
 
 export const TRAIL_RADIUS = 5;
@@ -40,22 +55,24 @@ export const TRAIL_PITS: [number, number][] = [
   [-1, 2],
 ];
 
-// Start arcs on the outer ring (rotationally symmetric — the terrain,
-// not the setup, carries the asymmetry that kills the mirror).
+// Interspersed starts (layout v2): every 3rd hex of the outer ring,
+// colours alternating around the ring (R,B,R,B,... in angular order:
+// (-4,-1) R, (-1,-4) B, (2,-5) R, (5,-5) B, (5,-2) R, (4,1) B,
+// (1,4) R, (-2,5) B, (-5,5) R, (-5,2) B).
 export const TRAIL_STARTS: [[number, number][], [number, number][]] = [
   [
-    [5, 0],
-    [5, -1],
+    [-4, -1],
+    [2, -5],
     [5, -2],
-    [4, 1],
-    [3, 2],
+    [1, 4],
+    [-5, 5],
   ],
   [
-    [-5, 0],
-    [-5, 1],
+    [-1, -4],
+    [5, -5],
+    [4, 1],
+    [-2, 5],
     [-5, 2],
-    [-4, -1],
-    [-3, -2],
   ],
 ];
 
@@ -66,9 +83,7 @@ function buildTrailTiles(): Record<string, TileType> {
   const start1 = new Set(TRAIL_STARTS[1].map(([q, r]) => hexKey(q, r)));
 
   for (const key of hexDisk(TRAIL_RADIUS)) {
-    const { q, r } = parseKey(key);
-    const dist = (Math.abs(q) + Math.abs(q + r) + Math.abs(r)) / 2;
-    if (dist <= 1 || pitSet.has(key)) tiles[key] = "killbox"; // centre pit + asymmetric pits
+    if (pitSet.has(key)) tiles[key] = "killbox"; // asymmetric pits only; centre is open (v2)
     else if (start0.has(key)) tiles[key] = "start0";
     else if (start1.has(key)) tiles[key] = "start1";
     else tiles[key] = "normal";
@@ -79,7 +94,7 @@ function buildTrailTiles(): Record<string, TileType> {
 export const TRAIL_CONFIG: GameConfig = {
   ...DEFAULT_CONFIG,
   boardRadius: TRAIL_RADIUS,
-  killboxRadius: 1,
+  killboxRadius: 0, // no centre pit in Trail v2; pits come from customTiles
   piecesPerPlayer: 5,
   winCondition: "no_move_loses",
   trailMode: true,
