@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import HexBoard from "./HexBoard";
 import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
-import { DEFAULT_CONFIG, TRAIL_CONFIG, withTrailPieces } from "@/lib/engine";
+import { DEFAULT_CONFIG, TRAIL_CONFIG, MINI_CONFIG, withTrailPieces } from "@/lib/engine";
 import type { TrailPiecesVariant } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
 import type { AIDifficulty } from "@/lib/engine/ai";
@@ -616,8 +616,9 @@ export default function GamePage() {
             </label>
           )}
 
-          {/* Trail piece types */}
-          {config.trailMode && (
+          {/* Trail piece types (full Trail board only: the special
+              slots are defined on the radius-5 starts) */}
+          {config.trailMode && config.boardRadius > 3 && (
             <label className="text-sm text-gray-400">
               Pieces:{" "}
               <select
@@ -727,6 +728,22 @@ export default function GamePage() {
               ? "Back to Standard HexRing"
               : "Play Trail — asymmetric pits"}
           </button>
+          {config.trailMode && (
+            <button
+              onClick={() =>
+                handleConfigChange(
+                  config.trailMoveRange === 1 && config.boardRadius === 3
+                    ? TRAIL_CONFIG
+                    : MINI_CONFIG
+                )
+              }
+              className="w-full py-2 text-sm cursor-pointer border-2 border-teal-700 rounded-md bg-[#1a1a2e] text-teal-400 hover:bg-teal-900/30 hover:border-teal-500 transition-all"
+            >
+              {config.trailMoveRange === 1 && config.boardRadius === 3
+                ? "Back to Full Trail"
+                : "Play Trail Mini — 3v3, step 1"}
+            </button>
+          )}
 
           {/* Settings */}
           <SettingsPanel config={config} onApply={handleConfigChange} />
@@ -770,7 +787,7 @@ export default function GamePage() {
               : config.winCondition === "last_standing"
                 ? "Reduce opponent to 1 piece to win!"
                 : config.winCondition === "no_move_loses"
-                  ? "Trail: move a piece up to 2 hexes through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose." +
+                  ? `Trail: move a piece up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose.` +
                     (config.trailPieces === "scouts"
                       ? " Scouts (S) move up to 3 hexes."
                       : config.trailPieces === "hoppers" || config.trailPieces === "hopper1"

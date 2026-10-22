@@ -31,6 +31,10 @@ export {
   TRAIL_PITS,
   TRAIL_STARTS,
   TRAIL_RADIUS,
+  MINI_CONFIG,
+  MINI_PITS,
+  MINI_STARTS,
+  MINI_RADIUS,
   trailPieceKinds,
   withTrailPieces,
 } from "./presets";
