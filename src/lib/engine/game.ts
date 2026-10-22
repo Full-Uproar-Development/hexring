@@ -235,7 +235,50 @@ export class Game {
 
   // --- Move generation ---
 
+  /**
+   * Fair Start: the destination banned for this piece, if any. The
+   * ban exists only while exactly one move has been played (one dead
+   * hex), the mover is not the seat that played it, and this piece is
+   * sitting on the mirror image of that move's source hex — its
+   * mirror destination is then off limits for this one decision.
+   */
+  private fairStartBannedDest(
+    state: GameState,
+    piece: Piece
+  ): { q: number; r: number } | null {
+    const cfg = this.board.config;
+    if (!cfg.fairStart || !cfg.trailMode) return null;
+    const fm = state.firstMove;
+    if (!fm) return null;
+    if ((state.deadCells?.length ?? 0) !== 1) return null;
+    if (piece.player !== state.currentPlayer) return null;
+    if (piece.player === fm.player) return null;
+    if (piece.q !== -fm.srcQ || piece.r !== -fm.srcR) return null;
+    return { q: -fm.destQ, r: -fm.destR };
+  }
+
   genMoves(state: GameState, piece: Piece): Move[] {
+    const moves = this.genMovesInner(state, piece);
+    const banned = this.fairStartBannedDest(state, piece);
+    if (!banned || !moves.length) return moves;
+    const filtered = moves.filter(
+      (m) => !(m.destQ === banned.q && m.destR === banned.r)
+    );
+    if (filtered.length === moves.length) return moves; // ban not in list
+    if (filtered.length > 0) return filtered;
+    // The banned move is this piece's only move: the ban lifts if it
+    // is also the mover's only move anywhere on the board.
+    const mover = piece.player;
+    const anyOther = Object.values(state.pieces).some(
+      (p) =>
+        p.player === mover &&
+        p.id !== piece.id &&
+        this.genMovesInner(state, p).length > 0
+    );
+    return anyOther ? filtered : moves;
+  }
+
+  private genMovesInner(state: GameState, piece: Piece): Move[] {
     const moves: Move[] = [];
     const pid = piece.player;
     const cfg = this.board.config;
@@ -742,6 +785,24 @@ export class Game {
   // --- Execute a full turn (apply + check win + switch player) ---
 
   executeTurn(move: Move): TurnResult {
+    // Fair Start: remember the first move of the game (Trail only).
+    if (
+      this.board.config.trailMode &&
+      this.board.config.fairStart &&
+      !this.state.firstMove &&
+      move.type === "MOVE"
+    ) {
+      const piece = this.state.pieces[move.pieceId];
+      if (piece) {
+        this.state.firstMove = {
+          player: this.state.currentPlayer,
+          srcQ: piece.q,
+          srcR: piece.r,
+          destQ: move.destQ,
+          destR: move.destR,
+        };
+      }
+    }
     this.applyMove(this.state, move);
     this.state.turnCount++;
 
@@ -824,6 +885,7 @@ export class Game {
       totalDeployed: [...state.totalDeployed],
       deadCells: [...(state.deadCells ?? [])],
       eliminated: [...(state.eliminated ?? [])],
+      firstMove: state.firstMove ? { ...state.firstMove } : undefined,
     };
   }
 }

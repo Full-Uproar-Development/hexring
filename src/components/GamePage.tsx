@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import HexBoard from "./HexBoard";
 import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
-import { DEFAULT_CONFIG, TRAIL_CONFIG, MINI_CONFIG, withTrailPieces } from "@/lib/engine";
+import { DEFAULT_CONFIG, TRAIL_CONFIG, MINI_CONFIG, withTrailPieces, generatedTrailConfig } from "@/lib/engine";
 import { TRAIL_FFA_PRESETS, findTrailFfaPreset, seatName, MAX_PLAYERS } from "@/lib/engine";
 import type { TrailPiecesVariant } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
@@ -39,6 +39,9 @@ function loadSettings(): { config: GameConfig; seatModes: PlayerMode[]; difficul
     const saved = JSON.parse(raw);
     // Merge with defaults to handle new fields added after save
     let config: GameConfig = { ...DEFAULT_CONFIG, ...saved.config };
+    // Fair Start shipped after some saves: a saved Trail config that
+    // predates the field gets the rule, as Trail presets carry it
+    if (config.trailMode && !("fairStart" in saved.config)) config.fairStart = true;
     try {
       new Game(config);
     } catch {
@@ -698,6 +701,40 @@ export default function GamePage() {
             </label>
           )}
 
+          {/* Trail board: fixed layouts or a generated board per radius */}
+          {config.trailMode && playerCount === 2 && (
+            <label className="text-sm text-gray-400">
+              Board:{" "}
+              <select
+                value={
+                  config.trailBoardKind ??
+                  (JSON.stringify(config.customTiles) === JSON.stringify(MINI_CONFIG.customTiles)
+                    ? "mini"
+                    : JSON.stringify(config.customTiles) === JSON.stringify(TRAIL_CONFIG.customTiles)
+                      ? "trail"
+                      : `gen-${config.boardRadius}`)
+                }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "mini") handleConfigChange(MINI_CONFIG);
+                  else if (v === "trail") handleConfigChange(TRAIL_CONFIG);
+                  else if (v.startsWith("gen-"))
+                    handleConfigChange(
+                      generatedTrailConfig(parseInt(v.slice(4), 10), Date.now())
+                    );
+                }}
+                className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5"
+              >
+                <option value="mini">Radius 3 · Mini (fixed)</option>
+                <option value="gen-3">Radius 3 · generated</option>
+                <option value="gen-4">Radius 4 · generated</option>
+                <option value="trail">Radius 5 · Trail (fixed)</option>
+                <option value="gen-5">Radius 5 · generated</option>
+                <option value="gen-6">Radius 6 · generated</option>
+              </select>
+            </label>
+          )}
+
           {/* Scoreboard */}
           {playerCount > 2 ? (
             <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-3 flex flex-col gap-1.5">
@@ -878,9 +915,15 @@ export default function GamePage() {
               : config.winCondition === "last_standing"
                 ? "Reduce opponent to 1 piece to win!"
                 : config.winCondition === "no_move_loses" && playerCount > 2
-                  ? `Trail free-for-all (${playerCount} players): move one of your pieces up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Turns go ${turnOrder.map(seatName).join(" → ")}. Start your turn with no legal move and you are out: your pieces stay as grey obstacles. Last player left wins.`
+                  ? `Trail free-for-all (${playerCount} players): move one of your pieces up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Turns go ${turnOrder.map(seatName).join(" → ")}. Start your turn with no legal move and you are out: your pieces stay as grey obstacles. Last player left wins.` +
+                    (config.fairStart
+                      ? " Fair Start: your first move cannot be the mirror image of the previous player's first move."
+                      : "")
                 : config.winCondition === "no_move_loses"
                   ? `Trail: move a piece up to ${config.trailMoveRange} hex${config.trailMoveRange === 1 ? "" : "es"} through empty hexes. The hex it leaves dies forever (✕). Pits cannot be entered. Start your turn with no legal move and you lose.` +
+                    (config.fairStart
+                      ? " Fair Start: the second player's first move cannot be the mirror image of the first player's."
+                      : "") +
                     (config.trailPieces === "scouts"
                       ? " Scouts (S) move up to 3 hexes."
                       : config.trailPieces === "hoppers" || config.trailPieces === "hopper1"

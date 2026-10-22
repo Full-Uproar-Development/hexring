@@ -40,10 +40,12 @@ export {
   trailPieceKinds,
   withTrailPieces,
   buildTrailBoard,
-  TRAIL_FFA_PLACEHOLDER_3,
-  TRAIL_FFA_PLACEHOLDER_4,
+  TRAIL_FFA_SIM_3,
+  TRAIL_FFA_SIM_4,
+  TRAIL_FFA_SIM_4_OPEN,
   TRAIL_FFA_PRESETS,
   findTrailFfaPreset,
+  generatedTrailConfig,
 } from "./presets";
 export type { TrailPiecesVariant, TrailBoardSpec, TrailFfaPreset } from "./presets";
 export { SEAT_NAMES, seatName, MIN_PLAYERS, MAX_PLAYERS } from "./players";

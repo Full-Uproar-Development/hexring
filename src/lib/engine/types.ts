@@ -72,6 +72,15 @@ export interface GameState {
   // An eliminated seat never moves again; its pieces stay on the board
   // as neutral obstacles. In a 2-player game the loser ends up here.
   eliminated: PlayerId[];
+  // Fair Start (Trail): the first move of the game, recorded so the
+  // next seat's first move can be checked against its mirror image.
+  firstMove?: {
+    player: PlayerId;
+    srcQ: number;
+    srcR: number;
+    destQ: number;
+    destR: number;
+  };
 }
 
 // What executeTurn reports back to the caller.
@@ -152,6 +161,20 @@ export interface GameConfig {
   trailPieces: "uniform" | "scouts" | "hoppers" | "hopper1";
   pieceKinds?: Record<string, PieceKind>;
 
+  // Fair Start (Trail, founder ruling 2026-10-22): the next seat's
+  // first move may not be the 180-degree mirror of the first move of
+  // the game. One forced deviation breaks the copycat permanently;
+  // sims (TRAIL_PROBE.md addendum 8) show the mirror attempt falls to
+  // exactly the ordinary second-seat win rate on every terrain, with
+  // ordinary balance undisturbed. The ban lifts if it would leave
+  // the mover with no legal move at all. On in all Trail presets.
+  fairStart: boolean;
+
+  // Which named Trail board this config is, for UI selectors:
+  // "trail" (fixed radius-5), "mini" (fixed radius-3), "gen-<radius>"
+  // (generated). Undefined for standard/custom games.
+  trailBoardKind?: string;
+
   // Deploy / reinforcement
   deployEnabled: boolean;
   deployZone: number; // which ring new pieces deploy onto (0 = center)
@@ -188,6 +211,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   trailMode: false,
   trailMoveRange: 2,
   trailPieces: "uniform",
+  fairStart: false,
   deployEnabled: false,
   deployZone: 3,
   reservePieces: 0,
